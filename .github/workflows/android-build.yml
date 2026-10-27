@@ -1,1 +1,61 @@
 
+name: RoutineFit APK build
+
+'on':
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get repository
+        uses: actions/checkout@v4
+
+      - name: Locate Android project
+        shell: bash
+        run: |
+          if [ -f RoutineFit_Android_Project.zip ]; then
+            mkdir -p android-src
+            unzip -q -o RoutineFit_Android_Project.zip -d android-src
+            echo "PROJECT_DIR=android-src" >> "$GITHUB_ENV"
+          elif [ -f app/build.gradle ] && [ -f settings.gradle ]; then
+            echo "PROJECT_DIR=." >> "$GITHUB_ENV"
+          else
+            echo "::error::Upload RoutineFit_Android_Project.zip to repository root, or upload the unzipped Android project files."
+            exit 1
+          fi
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 36 SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Build test APK
+        shell: bash
+        run: gradle -p "$PROJECT_DIR" --no-daemon --stacktrace assembleDebug
+
+      - name: Save test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoutineFit-debug-APK
+          path: '**/app/build/outputs/apk/debug/*.apk'
+          if-no-files-found: error
