@@ -1,1 +1,74 @@
 
+name: RoutineFit ONEstore Release APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build signed release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Unpack Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f RoutineFit_Android_Project.zip
+          mkdir -p android-src
+          unzip -q -o RoutineFit_Android_Project.zip -d android-src
+          test -f android-src/app/build.gradle
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Build signed release APK
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ROUTINEFIT_KEYSTORE_B64 }}
+          ROUTINEFIT_KEYSTORE_PASSWORD: ${{ secrets.ROUTINEFIT_KEYSTORE_PASSWORD }}
+          ROUTINEFIT_KEY_ALIAS: ${{ secrets.ROUTINEFIT_KEY_ALIAS }}
+          ROUTINEFIT_KEY_PASSWORD: ${{ secrets.ROUTINEFIT_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_B64" || -z "$ROUTINEFIT_KEYSTORE_PASSWORD" || -z "$ROUTINEFIT_KEY_ALIAS" || -z "$ROUTINEFIT_KEY_PASSWORD" ]]; then
+            echo '::error::Missing signing secrets'
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/routinefit-release.jks"
+          export ROUTINEFIT_KEYSTORE_PATH="$RUNNER_TEMP/routinefit-release.jks"
+          gradle -p android-src --no-daemon assembleRelease
+          APK=android-src/app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+
+      - name: Save signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoutineFit-v1.6.4-ONEstore-release-APK
+          path: android-src/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
