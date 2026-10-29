@@ -24,6 +24,55 @@ jobs:
           unzip -q -o RoutineFit_Android_Project.zip -d android-src
           test -f android-src/app/build.gradle
 
+      - name: Apply v1.6.6 policy and signing update
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, shutil
+          base = Path('android-src/app')
+          f = base / 'build.gradle'
+          g = f.read_text(encoding='utf-8')
+          assert "applicationId 'com.nanami128sketch.routinefit'" in g
+          g = re.sub(r'(?m)^\s*versionCode\s+\d+', '        versionCode 166', g, count=1)
+          g = re.sub(r"(?m)^\s*versionName\s+'[^']+'", "        versionName '1.6.6'", g, count=1)
+          if 'def signingKeyPath' not in g:
+              g = g.replace("plugins { id 'com.android.application' }", "plugins { id 'com.android.application' }\ndef signingKeyPath = System.getenv('ROUTINEFIT_KEYSTORE_PATH')", 1)
+              g = g.replace('android {', '''android {
+              signingConfigs {
+                  release {
+                      if (signingKeyPath) {
+                          storeFile file(signingKeyPath)
+                          storePassword System.getenv('ROUTINEFIT_KEYSTORE_PASSWORD')
+                          keyAlias System.getenv('ROUTINEFIT_KEY_ALIAS')
+                          keyPassword System.getenv('ROUTINEFIT_KEY_PASSWORD')
+                      }
+                  }
+              }
+          ''', 1)
+          if 'signingConfig signingConfigs.release' not in g:
+              g = g.replace('release { minifyEnabled false }', 'release { minifyEnabled false; if (signingKeyPath) signingConfig signingConfigs.release }', 1)
+          assert 'versionCode 166' in g and 'signingConfig signingConfigs.release' in g
+          f.write_text(g, encoding='utf-8')
+          assets = base / 'src/main/assets'
+          for name in ('privacy.html','terms.html','copyright_notice.html','advertising_notice.html'):
+              source = Path(name)
+              assert source.is_file(), 'Policy missing: ' + name
+              assert 'nanami1288@naver.com' in source.read_text(encoding='utf-8')
+              shutil.copyfile(source, assets / name)
+          file = assets / 'index.html'
+          html = file.read_text(encoding='utf-8')
+          assert "const VERSION='1.6." in html
+          html = re.sub(r"const VERSION='1\.6\.\d+'", "const VERSION='1.6.6'", html, count=1)
+          if 'copyright_notice.html' not in html:
+              marker = '<div class="version-footer">ROUTINE FIT v${VERSION}'
+              assert html.count(marker) == 1
+              links = '''<div class="setting-group"><h3>서비스 및 이용 안내</h3><p><a href="terms.html">이용약관</a>　<a href="copyright_notice.html">저작권·신고</a>　<a href="advertising_notice.html">광고·협찬 안내</a></p></div>'''
+              html = html.replace(marker, links + marker, 1)
+          file.write_text(html, encoding='utf-8')
+          print('RoutineFit v1.6.6 policy update ready')
+          PY
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -68,7 +117,7 @@ jobs:
       - name: Save signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: RoutineFit-v1.6.4-ONEstore-release-APK
+          name: RoutineFit-v1.6.6-ONEstore-release-APK
           path: android-src/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 7
